@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Convo</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+    }
+    .container {
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .table td {
+        border: 1px solid #ddd;
+        padding: 8px;
+    }
+    .table td:first-child {
+        width: calc(100% - 50px);
+    }
+    .table td:last-child {
+        width: 50px;
+    }
+    .input-group {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 20px;
+    }
+    .input-group input {
+        flex: 1;
+    }
+    .input-group button {
+        margin-left: 10px;
+    }
+</style>
+</head>
+<body>
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+<div class="container">
+    <h1>{{ topic|title }}</h1>
+    <table class="table" id="message_table">
+        <tbody>
+            <tr>
+                <td>Today's conversation will be around the topic '{{ topic }}'. Below are the conversation messages, starting with the opening message from your conversation partner.</td>
+                <td><button class="play_button" style="width: 50px;">Play</button></td>
+            </tr>
+            {% for item in items %}
+                <tr>
+                    <td>{{ item.column1 }}</td>
+                    <td><button style="width: 50px;">Play</button></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="input-group">
+        <input type="text" placeholder="Your message here">
+        <button id="record_button">Record</button>
+        <button id="send_button">Send</button>
+    </div>
+</div>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<script>
+    function getCsrfToken() {
+        return document.querySelector('[name=csrfmiddlewaretoken]').value;
+    }
+
+    // Record button
+    let mediaRecorder;
+    let audioChunks = [];
+    let currentRecording;
+
+    async function initMediaRecorder() {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+
+        mediaRecorder.ondataavailable = event => {
+            audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audio.play();
+            currentRecording = audio;
+            sendAudio(audioBlob);
+        };
+    }
+
+    document.querySelector('#record_button').addEventListener('click', () => {
+        if (mediaRecorder.state === 'inactive') {
+            mediaRecorder.start();
+            console.log('Recording started');
+        } else {
+            mediaRecorder.stop();
+            console.log('Recording stopped');
+        }
+    });
+
+    window.onload = initMediaRecorder;
+
+    // Play buttons
+    const playButtons = document.querySelectorAll('.play_button');
+    playButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // We do a POST request for the audio file from the server, if one exists, based on the message text from the same row
+            // Importantly, we prevent the default behaviour of the form submission, which is to reload the page
+            event.preventDefault();
+            const messageText = button.parentNode.parentNode.querySelector('td:first-child').innerText;
+            fetch('/get_audio', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message_text: messageText })
+            }).then(response => {
+                if (response.ok) {
+                    return response.blob();
+                }
+            }).then(blob => {
+                if (blob) {
+                    const audioUrl = URL.createObjectURL(blob);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                } else {
+                    // Highlight the message text in red
+                    button.parentNode.parentNode.querySelector('td:first-child').style.color = 'red';
+                    currentRecording.play();
+                }
+            });
+        });
+    });
+
+    // Send audio to server
+    async function sendAudio(audioBlob) {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recordedAudio.wav');
+
+        try {
+            const response = await fetch('/send_audio', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                },
+                body: formData,
+            });
+
+            if(response.ok) {
+                const data = await response.json();
+                console.log('Server Response:', data);
+            } else {
+                console.error('Server Error:', response.status);
+            }
+        } catch(error) {
+            console.error('Network Error:', error);
+        }
+    }
+
+    // Send message to server
+    document.querySelector('#send_button').addEventListener('click', () => {
+        const messageText = document.querySelector('.input-group input').value;
+        fetch('/send_message', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCsrfToken(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ message_text: messageText })
+        }).then(response => {
+            if (response.ok) {
+                return response.json();
+            }
+        }).then(data => {
+            console.log('Server Response:', data);
+        });
+    });
+
+</script>
+
+</body>
+</html>
