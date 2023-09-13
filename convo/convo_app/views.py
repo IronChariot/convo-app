@@ -1,13 +1,16 @@
 from django.shortcuts import render
 from django.http import HttpResponse
 from django.http import JsonResponse
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import logging
 import whisper
 import os
 import uuid
 import json
+import base64
 from .gpt import set_system_message, get_response, get_topic, convo
+from .elevenlabs import generate_audio
 
 logger = logging.getLogger(__name__)
 model = whisper.load_model("medium")
@@ -21,10 +24,17 @@ for file in os.listdir("."):
 def index(request):
     topic = get_topic()
     first_message = set_system_message()
+    # Got the response from GPT, now generate the audio
+    audio = generate_audio(first_message)
+    # Save the audio to file and keep its text and uuid in the dict
+    new_uuid = str(uuid.uuid4())
+    with open(new_uuid + '.wav', 'wb+') as destination:
+        destination.write(audio)
+    audio_dict[first_message] = new_uuid
     return render(request, 'convo_app/index.html', {'topic': topic, 'first_message': first_message})
 
 def get_audio(request):
-    logger.info("Got a get_audio request")
+    # logger.info("Got a get_audio request")
     # Get the message_text from the request
     body_data = json.loads(request.body.decode('utf-8'))
     message_text = body_data.get('message_text')
@@ -59,15 +69,25 @@ def send_audio(request, *args, **kwargs):
     return JsonResponse({ 'error': 'No file uploaded' }, status=400)
 
 def send_message(request):
-    logger.info("Got a send_message request")
+    # logger.info("Got a send_message request")
     body_data = json.loads(request.body.decode('utf-8'))
     message_text = body_data.get('message_text')
     message_text_trimmed = message_text.strip()
     response = get_response(message_text_trimmed)
-    return JsonResponse({ 'response': response })
+    # Got the response from GPT, now generate the audio
+    audio = generate_audio(response)
+    # Save the audio to file and keep its text and uuid in the dict
+    new_uuid = str(uuid.uuid4())
+    with open(new_uuid + '.wav', 'wb+') as destination:
+        destination.write(audio)
+    audio_dict[response] = new_uuid
+
+    # Return the audio file in the response
+    audio_base64 = base64.b64encode(audio)
+    return JsonResponse({ 'response': response, 'audio': audio_base64.decode('utf-8') })
 
 def get_convo(request):
-    logger.info("Got a get_convo request")
+    # logger.info("Got a get_convo request")
     # Turn the convo.list into just json
     convo_json = json.dumps(convo.list)
     return JsonResponse({ 'convo': convo_json })

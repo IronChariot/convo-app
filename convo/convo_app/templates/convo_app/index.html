@@ -78,6 +78,11 @@
     let audioChunks = [];
     let currentRecording;
 
+    // When the document is ready, play the audio of the first message
+    $(document).ready(function() {
+        play_audio(document.querySelector('#message_table tr:nth-child(2) button'));
+    });
+
     async function initMediaRecorder() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(stream);
@@ -174,13 +179,21 @@
                 return response.json();
             }
         }).then(data => {
-            console.log('Server Response:', data);
+            //console.log('Server Response:', data);
             // Add the response to the table
             const newRow = messageTable.insertRow(-1);
             const newCell1 = newRow.insertCell(0);
             const newCell2 = newRow.insertCell(1);
             newCell1.innerHTML = "[Miko]: " + data["response"];
             newCell2.innerHTML = '<button onclick="play_audio(this)"><i class="fa-solid fa-play"></i></button>';
+
+            const audioData = data["audio"];
+            if (audioData) {
+                const audio = new Audio();
+                audio.src = `data:audio/wav;base64,${audioData}`;
+                audio.playbackRate=0.8;
+                audio.play();
+            }
         });
     });
 
@@ -190,7 +203,7 @@
         var messageText = button.parentNode.parentNode.querySelector('td:first-child').innerText;
         // Remove [User]: or [Miko]: from the start of the message text
         messageText = messageText.substring(messageText.indexOf(']') + 2);
-        console.log("Message was: " + messageText)
+        //console.log("Message was: " + messageText)
         fetch('/get_audio', {
             method: 'POST',
             headers: {
